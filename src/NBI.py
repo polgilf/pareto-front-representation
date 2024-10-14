@@ -16,30 +16,6 @@ from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 class NBI(MOLP):
     '''
     This class defines the Normal Boundary Intersection (NBI) method for multi-objective linear programs.
-
-    Attributes:
-    - prob: Pulp problem object
-    - objectives: list of objective functions (Pulp variables)
-    - variables: list of variables (Pulp variables)
-    - num_ref_points: number of reference points
-    - ref_points_dict: dictionary with reference points {ref_point_id: [objective_values]}
-        - this attribute should be computed by the method compute_ref_points()
-    - normal_vector: normal vector to the hyperplane (numpy array)
-        - this attribute should be computed by the method compute_normal_vector()
-    - solutions_dict: dictionary with solutions {ref_point_id: Solution object}
-        - this attribute should be computed by the method NBI_algorithm()
-
-    Methods:
-    - compute_ref_points(num_points): computes the reference points (returns a dictionary with reference points)
-    - compute_normal_vector(): computes the normal vector to the hyperplane (returns a numpy array)
-    - solve_NBI_subproblem(ref_point): solves the NBI subproblem for a given reference point (returns a Solution object)
-    - NBI_algorithm(): runs the NBI algorithm (returns 1, and sets the solutions_dict attribute)
-        - this method computes the reference points and the normal vector
-    - solutions_values(): returns the objective values of the solutions (numpy array)
-    - solutions_ref_to_values(): returns a dictionary with the reference points and their objective values {ref_point_id: [objective_values]}
-
-    - plot_NBI_2D(): plots the NBI method in 2D
-    - plot_NBI_3D(): plots the NBI method in 3D
     '''
     def __init__(self, prob, objectives, variables):
         super().__init__(prob, objectives, variables)
@@ -162,7 +138,28 @@ class NBI(MOLP):
             raise ValueError("No solutions have been computed yet.")
         return np.array([sol.variable_values() for sol in self.solutions_dict.values()])
     
-def plot_NBI_2D(nbi):
+    def denormalize_objective_values(self):
+        # Error if no solutions have been computed
+        if self.solutions_dict is None:
+            raise ValueError("No solutions have been computed yet.")
+        # Start with the original individual optima
+        original_individual_optima = self.original_individual_optima
+        # Compute payoff table, ideal point, and nadir point for original objectives values
+        original_payoff_matrix = np.array([opt.objective_values() for opt in original_individual_optima])
+        original_ideal_point = np.min(original_payoff_matrix, axis=0)
+        original_nadir_point = np.max(original_payoff_matrix, axis=0)
+        # Denormalize objective values
+        denormalized_solution_dict = {}
+        for ref_id, solution in self.solutions_dict.items():
+            normalized_solution_values = deepcopy(solution.objective_values())
+            denormalized_solution = deepcopy(solution)
+            for i in range(self.num_objectives()):
+                denormalized_solution.objectives[i] = original_ideal_point[i] + (original_nadir_point[i] - original_ideal_point[i]) * normalized_solution_values[i]
+            denormalized_solution_dict[ref_id] = denormalized_solution
+        self.solutions_dict = deepcopy(denormalized_solution_dict)
+        return self.solutions_dict
+    
+def plot_NBI_2D(nbi, normalize_scale = True):
     objective_values = nbi.solutions_ref_to_values() # Dict with refpoint_id: [objective_values_of_solution]
     reference_points = nbi.ref_points_dict # Dict with refpoint_id: [objective_values_of_refpoint]
     # Plot the Pareto front
@@ -181,16 +178,17 @@ def plot_NBI_2D(nbi):
     for ref_id, ref_values in reference_points.items():
         obj_values = objective_values[ref_id]
         plt.arrow(ref_values[0], ref_values[1], obj_values[0] - ref_values[0], obj_values[1] - ref_values[1], 
-                    head_width=0.1, head_length=0.1, fc='gray', ec='gray', zorder=4)
+                    head_width=0.01, head_length=0.01, fc='gray', ec='gray', zorder=4)
     
     plt.xlabel(nbi.objectives[0].name)
     plt.ylabel(nbi.objectives[1].name)
     plt.title('NBI method, NBI method with ' + str(nbi.num_ref_points) + ' reference points')
     plt.grid(True)
-    plt.gca().set_aspect('equal', adjustable='box')  # Ensure the same scale for x and y axes
+    if not normalize_scale:
+        plt.gca().set_aspect('equal', adjustable='box')  # Ensure the same scale for x and y axes
     plt.show()
 
-def plot_NBI_3D(nbi):
+def plot_NBI_3D(nbi, normalize_scale = True):
     objective_values = nbi.solutions_ref_to_values() # Dict with refpoint_id: [objective_values_of_solution]
     reference_points = nbi.ref_points_dict # Dict with refpoint_id: [objective_values_of_refpoint]
     # Plot the Pareto front
@@ -229,18 +227,64 @@ def plot_NBI_3D(nbi):
     ax.set_title('NBI method, NBI method with ' + str(nbi.num_ref_points) + ' reference points')
     
     # Ensure the same scale for x, y, and z axes
-    x_limits = ax.get_xlim3d()
-    y_limits = ax.get_ylim3d()
-    z_limits = ax.get_zlim3d()
-    
-    x_range = x_limits[1] - x_limits[0]
-    y_range = y_limits[1] - y_limits[0]
-    z_range = z_limits[1] - z_limits[0]
-    
-    max_range = max(x_range, y_range, z_range)
-    
-    ax.set_xlim3d([x_limits[0], x_limits[0] + max_range])
-    ax.set_ylim3d([y_limits[0], y_limits[0] + max_range])
-    ax.set_zlim3d([z_limits[0], z_limits[0] + max_range])
+    if not normalize_scale:
+        x_limits = ax.get_xlim3d()
+        y_limits = ax.get_ylim3d()
+        z_limits = ax.get_zlim3d()
+        
+        x_range = x_limits[1] - x_limits[0]
+        y_range = y_limits[1] - y_limits[0]
+        z_range = z_limits[1] - z_limits[0]
+        
+        max_range = max(x_range, y_range, z_range)
+        
+        ax.set_xlim3d([x_limits[0], x_limits[0] + max_range])
+        ax.set_ylim3d([y_limits[0], y_limits[0] + max_range])
+        ax.set_zlim3d([z_limits[0], z_limits[0] + max_range])
 
+    plt.show()
+
+
+def plot_NBI_3D_to_2D(nbi, objectives_to_use, normalize_scale=False, swap_axes=False):
+    objective_values = nbi.solutions_ref_to_values()  # Dict with refpoint_id: [objective_values_of_solution]
+    reference_points = nbi.ref_points_dict  # Dict with refpoint_id: [objective_values_of_refpoint]
+    
+    # Filter the objective values and reference points based on objectives_to_use
+    filtered_objective_values = {
+        ref_id: [obj for obj, use in zip(obj_values, objectives_to_use) if use]
+        for ref_id, obj_values in objective_values.items()
+    }
+    filtered_reference_points = {
+        ref_id: [ref for ref, use in zip(ref_values, objectives_to_use) if use]
+        for ref_id, ref_values in reference_points.items()
+    }
+    
+    # Plot the Pareto front
+    plt.figure(figsize=(6, 6))
+    
+    # Plot solution points
+    for ref_id, obj_values in filtered_objective_values.items():
+        x, y = (obj_values[1], obj_values[0]) if swap_axes else (obj_values[0], obj_values[1])
+        plt.scatter(x, y, color='red', s=40, zorder=5)
+    
+    # Plot reference points
+    for ref_id, ref_values in filtered_reference_points.items():
+        x, y = (ref_values[1], ref_values[0]) if swap_axes else (ref_values[0], ref_values[1])
+        plt.scatter(x, y, color='blue', s=20, zorder=6)
+    
+    # Plot the arrows connecting reference points to solutions
+    for ref_id, ref_values in filtered_reference_points.items():
+        obj_values = filtered_objective_values[ref_id]
+        x1, y1 = (ref_values[1], ref_values[0]) if swap_axes else (ref_values[0], ref_values[1])
+        x2, y2 = (obj_values[1], obj_values[0]) if swap_axes else (obj_values[0], obj_values[1])
+        plt.arrow(x1, y1, x2 - x1, y2 - y1, head_width=0.1, head_length=0.1, fc='gray', ec='gray', zorder=4)
+    
+    xlabel = nbi.objectives[objectives_to_use.index(1)].name
+    ylabel = nbi.objectives[objectives_to_use.index(1, objectives_to_use.index(1) + 1)].name
+    plt.xlabel(ylabel if swap_axes else xlabel)
+    plt.ylabel(xlabel if swap_axes else ylabel)
+    plt.title('NBI method, NBI method with ' + str(nbi.num_ref_points) + ' reference points')
+    plt.grid(True)
+    if not normalize_scale:
+        plt.gca().set_aspect('equal', adjustable='box')  # Ensure the same scale for x and y axes
     plt.show()

@@ -25,7 +25,17 @@ class Solution():
         self.id = None # Unique identifier
         self.objectives = deepcopy(objectives)
         self.variables = deepcopy(variables)
-
+    '''
+    def objective_values(self):
+        values = []
+        for obj in self.objectives:
+            if hasattr(obj, 'value') and callable(getattr(obj, 'value')):
+                values.append(obj.value())
+            else:
+                values.append(obj)
+        return np.array(values)
+        #return np.array([obj.value() for obj in self.objectives])
+    '''
     def objective_values(self):
         return np.array([obj.value() for obj in self.objectives])
     
@@ -70,6 +80,8 @@ class MOLP():
         self.id = None # Unique identifier
         self.prob = prob
         self.original_prob = deepcopy(prob)
+        self.original_objectives = deepcopy(objectives)
+        self.original_individual_optima = [] # List of individual optima (Solution objects)
         self.objectives = objectives # List of objective functions (Pulp variables)
         self.variables = variables # List of variables (Pulp variables)
         self.individual_optima = [] # List of individual optima (Solution objects)
@@ -89,8 +101,12 @@ class MOLP():
         return solution
     
     def compute_all_individual_optima(self):
+        self.individual_optima = []
         for objective in self.objectives:
             self.individual_optima.append(self.compute_individual_optima(objective))
+        if str(self.objectives) == str(self.original_objectives):
+            self.original_individual_optima = self.individual_optima
+
         return self.individual_optima
     
     def payoff_matrix(self):
@@ -106,3 +122,15 @@ class MOLP():
     
     def nadir_point(self):
         return np.max(self.payoff_matrix(), axis=0)
+    
+    def normalize_objectives(self):
+        # Compute individual optima if not already computed
+        if self.individual_optima == []:
+            self.compute_individual_optima()
+        ideal_point = self.ideal_point()
+        nadir_point = self.nadir_point()
+        for i in range(self.num_objectives()):
+            self.objectives[i] = (self.objectives[i] - ideal_point[i]) / (nadir_point[i] - ideal_point[i])
+
+    def denormalize_objectives(self):
+        self.objectives = self.original_objectives
